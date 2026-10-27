@@ -10,7 +10,7 @@ Artefatos de entrega que não são sobre uso de IA (isso fica em [`prompts/`](..
 
 ## Checklist — Aula 21
 
-- [ ] `rascunho-dashboard1.jpg`/`.png`
+- [x] `rascunho-dashboard1.jpg`/`.png`
 
 ## Checklist — Aula 22
 
