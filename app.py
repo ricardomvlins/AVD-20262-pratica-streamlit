@@ -107,6 +107,47 @@ def histograma_agregado(dados, var, separar):
     return contagem.drop(columns=var)
 
 
+# Dashboard 2: faixas de antecedência (lead_time agrupado) e meses de chegada, na ordem do calendário
+FAIXAS_ANTECEDENCIA = [-1, 7, 30, 90, 180, np.inf]
+ROTULOS_ANTECEDENCIA = ["0–7 dias", "8–30 dias", "31–90 dias", "91–180 dias", "> 180 dias"]
+MESES = {
+    "January": "Jan", "February": "Fev", "March": "Mar", "April": "Abr", "May": "Mai", "June": "Jun",
+    "July": "Jul", "August": "Ago", "September": "Set", "October": "Out", "November": "Nov", "December": "Dez",
+}
+
+
+def numero_br(valor, casas=1):
+    """Formata com vírgula decimal e ponto de milhar (ex.: 11.484,0)."""
+    return f"{valor:,.{casas}f}".replace(",", "_").replace(".", ",").replace("_", ".")
+
+
+def valor_curto(valor):
+    """Resume valores grandes para caber no cartão de KPI (ex.: 11,5 mi)."""
+    if valor >= 1_000_000:
+        return f"{numero_br(valor / 1_000_000)} mi"
+    if valor >= 1_000:
+        return f"{numero_br(valor / 1_000)} mil"
+    return numero_br(valor, 0)
+
+
+def kpis(dados):
+    """As 4 métricas da justificativa (entregas/justificativa-metricas.md), testadas em notebooks/metricas-dashboard2.ipynb."""
+    cancelada = dados["status_reserva"].eq("Cancelada")
+    noites = dados["stays_in_week_nights"] + dados["stays_in_weekend_nights"]
+    return {
+        "taxa": cancelada.mean(),
+        "receita_perdida": (dados["adr"] * noites)[cancelada].sum(),
+        "lead_canceladas": dados.loc[cancelada, "lead_time"].median(),
+        "lead_nao_canceladas": dados.loc[~cancelada, "lead_time"].median(),
+        "adr_nao_canceladas": dados.loc[~cancelada, "adr"].mean(),
+    }
+
+
+def dias(valor):
+    # Recorte só com canceladas (ou só com não canceladas) deixa a mediana do outro grupo vazia
+    return "—" if pd.isna(valor) else f"{valor:.0f}"
+
+
 aba_dashboard1, aba_dashboard2 = st.tabs(["Dashboard 1: Correlação e Distribuição", "Dashboard 2: KPIs"])
 
 with aba_dashboard1:
@@ -224,4 +265,149 @@ with aba_dashboard1:
                     colunas[1].markdown(LEGENDA_STATUS)
 
 with aba_dashboard2:
-    st.info("Dashboard 2 em construção: KPIs dos cancelamentos (Aula 22).")
+    # Filtros do Dashboard 2 numa barra no topo da aba (a sidebar é do Dashboard 1)
+    col_hotel, col_ano, col_segmento = st.columns([1, 1, 1.4])
+    with col_hotel:
+        hoteis = st.pills(
+            "Hotel",
+            options=["City Hotel", "Resort Hotel"],
+            selection_mode="multi",
+            default=["City Hotel", "Resort Hotel"],
+        )
+    with col_ano:
+        anos = sorted(df["arrival_date_year"].unique())
+        ano_inicio, ano_fim = st.select_slider(
+            "Ano de chegada", options=anos, value=(anos[0], anos[-1])
+        )
+    with col_segmento:
+        segmentos_ordem = df["market_segment"].value_counts().index.tolist()
+        segmentos = st.multiselect(
+            "Segmento de mercado",
+            options=segmentos_ordem,
+            default=segmentos_ordem,
+            help="Canal pelo qual a reserva foi feita (ex.: Online TA = agência de viagens online).",
+        )
+
+    df_kpi = df[
+        df["hotel"].isin(hoteis)
+        & df["arrival_date_year"].between(ano_inicio, ano_fim)
+        & df["market_segment"].isin(segmentos)
+    ].assign(
+        faixa_antecedencia=lambda d: pd.cut(d["lead_time"], FAIXAS_ANTECEDENCIA, labels=ROTULOS_ANTECEDENCIA),
+        cancelada=lambda d: d["status_reserva"].eq("Cancelada"),
+    )
+
+    if df_kpi.empty:
+        st.warning("Nenhuma reserva com esses filtros. Selecione pelo menos um hotel e um segmento.")
+    else:
+        kpis_container = st.container()
+
+        # Barras: taxa de cancelamento por faixa de antecedência (sempre do recorte inteiro, para comparar as faixas)
+        por_faixa = (
+            df_kpi.groupby("faixa_antecedencia", observed=True)["cancelada"]
+            .agg(reservas="size", taxa="mean")
+            .reset_index()
+        )
+        taxa_recorte = df_kpi["cancelada"].mean()
+
+        clique = alt.selection_point(name="faixa", fields=["faixa_antecedencia"])
+        barras = (
+            alt.Chart(por_faixa)
+            .mark_bar(color=COR_CANCELADA)
+            .encode(
+                x=alt.X("faixa_antecedencia:N", sort=ROTULOS_ANTECEDENCIA, title="Antecedência da reserva",
+                        axis=alt.Axis(labelAngle=0)),
+                y=alt.Y("taxa:Q", title="Taxa de cancelamento", axis=alt.Axis(format=".0%")),
+                opacity=alt.condition(clique, alt.value(1), alt.value(0.35)),
+                tooltip=[
+                    alt.Tooltip("faixa_antecedencia:N", title="Faixa"),
+                    alt.Tooltip("taxa:Q", title="Taxa", format=".1%"),
+                    alt.Tooltip("reservas:Q", title="Reservas", format=","),
+                ],
+            )
+            .add_params(clique)
+        )
+        linha_geral = (
+            alt.Chart(pd.DataFrame({"taxa": [taxa_recorte]}))
+            .mark_rule(color="gray", strokeDash=[4, 4])
+            .encode(y="taxa:Q")
+        )
+
+        # A seleção da faixa volta para o Python e recalcula os KPIs e a linha por mês
+        col_barras, col_linha = st.columns(2)
+        with col_barras:
+            st.subheader("Cancelamento por antecedência")
+            evento = st.altair_chart(
+                (barras + linha_geral).properties(height=300),
+                key="barras_antecedencia",
+                on_select="rerun",
+                width="stretch",
+            )
+            st.caption("Clique numa faixa para recalcular os KPIs e a linha por mês (shift + clique seleciona mais de uma). "
+                       "A linha tracejada é a taxa do recorte.")
+
+        faixas_clicadas = [item["faixa_antecedencia"] for item in evento.selection.get("faixa", [])]
+        df_selecao = df_kpi[df_kpi["faixa_antecedencia"].isin(faixas_clicadas)] if faixas_clicadas else df_kpi
+
+        # Linha: taxa de cancelamento por mês de chegada
+        por_mes = (
+            df_selecao.groupby("arrival_date_month")["cancelada"]
+            .agg(reservas="size", taxa="mean")
+            .reindex(list(MESES))
+            .dropna()
+            .rename(index=MESES)
+            .rename_axis("mes")
+            .reset_index()
+        )
+        with col_linha:
+            st.subheader("Cancelamento por mês")
+            linha = (
+                alt.Chart(por_mes)
+                .mark_line(point=alt.OverlayMarkDef(color=COR_CANCELADA), color=COR_CANCELADA)
+                .encode(
+                    x=alt.X("mes:N", sort=list(MESES.values()), title="Mês de chegada", axis=alt.Axis(labelAngle=0)),
+                    y=alt.Y("taxa:Q", title="Taxa de cancelamento", axis=alt.Axis(format=".0%")),
+                    tooltip=[
+                        alt.Tooltip("mes:N", title="Mês"),
+                        alt.Tooltip("taxa:Q", title="Taxa", format=".1%"),
+                        alt.Tooltip("reservas:Q", title="Reservas", format=","),
+                    ],
+                )
+                .properties(height=300)
+            )
+            st.altair_chart(linha, width="stretch")
+
+        # KPIs acima dos gráficos (container reservado antes, preenchido depois da seleção)
+        with kpis_container:
+            selecao = kpis(df_selecao)
+            recorte = kpis(df_kpi)
+            descricao = ", ".join(faixas_clicadas) if faixas_clicadas else "todas as faixas de antecedência"
+            st.caption(f"{numero_br(len(df_selecao), 0)} reservas no recorte ({descricao}).")
+
+            col1, col2, col3, col4 = st.columns(4)
+            col1.metric(
+                "Taxa de cancelamento",
+                f"{numero_br(selecao['taxa'] * 100)}%",
+                # Com faixa clicada, compara com o recorte inteiro (subir é ruim, por isso a cor invertida)
+                delta=f"{numero_br((selecao['taxa'] - recorte['taxa']) * 100)} p.p." if faixas_clicadas else None,
+                delta_color="inverse",
+                border=True,
+            )
+            col2.metric(
+                "Receita perdida estimada",
+                valor_curto(selecao["receita_perdida"]),
+                help="Tarifa média diária (adr) × noites das reservas canceladas. O dataset não informa a moeda.",
+                border=True,
+            )
+            col3.metric(
+                "Antecedência mediana (dias)",
+                f"{dias(selecao['lead_canceladas'])} × {dias(selecao['lead_nao_canceladas'])}",
+                help="Canceladas × não canceladas.",
+                border=True,
+            )
+            col4.metric(
+                "Tarifa média (não canceladas)",
+                "—" if pd.isna(selecao["adr_nao_canceladas"]) else numero_br(selecao["adr_nao_canceladas"]),
+                help="Média de adr das reservas que se concretizaram.",
+                border=True,
+            )
