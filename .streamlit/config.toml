@@ -3,17 +3,18 @@
 
 [theme]
 paddingTop = "0.0rem"     # espaço abaixo da barra do topo (valor entre aspas)
-# font = "sans serif"     # "sans serif", "serif" ou "monospace"
+font = "sans serif"       # "sans serif", "serif" ou "monospace"
 
+# Identidade visual: coral dos cancelamentos (mesma cor da EDA) sobre fundos quentes, de hotelaria
 [theme.light]
-primaryColor = "#5271A3"            # cor de destaque (widgets, links): mesmo azul dos histogramas
-backgroundColor = "#ffffff"         # fundo da página
-secondaryBackgroundColor = "#f0f2f6"  # fundo da sidebar e de widgets
-textColor = "#31333f"               # cor do texto
-borderColor = "#d5dae5"
+primaryColor = "#E76F51"            # cor de destaque (widgets, links): coral das reservas canceladas
+backgroundColor = "#FFFBF7"         # fundo da página
+secondaryBackgroundColor = "#F3E9E2"  # fundo da sidebar e de widgets
+textColor = "#2D2A32"               # cor do texto
+borderColor = "#E5D6CC"
 
 [theme.dark]
-primaryColor = "#5271A3"
+primaryColor = "#E76F51"
 backgroundColor = "#0e1117"
 secondaryBackgroundColor = "#262730"
 textColor = "#fafafa"
