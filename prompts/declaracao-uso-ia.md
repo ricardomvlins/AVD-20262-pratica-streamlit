@@ -90,3 +90,54 @@ Os prompts abaixo resumem, em formato estruturado, os pedidos que fiz em cada et
 ### Rejeitado
 
 - Versionar as pastas `.claude/skills/` e `.agents/skills/`. O README define que cada pessoa roda `streamlit skills` no próprio clone, então apaguei a branch dessa tentativa e as skills ficaram só na minha máquina.
+
+## Aula 22 — Streamlit, parte 2
+
+### Prompt 7: planejar a entrega da Aula 22
+
+- **Objetivo:** montar o roteiro de tudo o que a Aula 22 pede, no mesmo formato da Aula 21.
+- **Contexto:** o PDF da Aula 22, o meu EDA, o `README.md`, o `ROTEIRO.md` e o `ALTAIR-CROSSFILTER.md`.
+- **Restrições:**
+  - Commits só na `main`, de 3 a 4 etapas, com revisão antes de cada commit.
+  - Sem implementar nada antes de eu aprovar o roteiro.
+- **Formato de saída:** um roteiro com os arquivos e a verificação de cada commit, mais uma proposta de público, KPIs, widgets e visuais para o Dashboard 2.
+- **Resultado:** um roteiro em 4 commits, que eu aprovei junto com a proposta do Dashboard 2.
+
+### Prompt 8: identidade visual e abas (commit 1)
+
+- **Objetivo:** aplicar a identidade visual em `.streamlit/config.toml` e separar os dashboards com `st.tabs`.
+- **Entrada:** duas opções de paleta derivadas das cores da minha EDA.
+- **Decisão:** escolhi a opção B (coral `#E76F51` sobre fundos quentes, ligada ao tema hotelaria e cancelamento).
+
+### Prompt 9: métricas, justificativa e rascunho (commit 2)
+
+- **Objetivo:** testar os KPIs em notebook antes do app (slide 15), escrever a justificativa e desenhar o rascunho do Dashboard 2.
+- **Restrições:** os 6 campos do modelo para cada métrica e de 3 a 5 KPIs (slides 13 e 14).
+- **Resultado:** [notebooks/metricas-dashboard2.ipynb](../notebooks/metricas-dashboard2.ipynb), [entregas/justificativa-metricas.md](../entregas/justificativa-metricas.md) e [entregas/rascunho-dashboard2.png](../entregas/rascunho-dashboard2.png).
+
+### Prompt 10: implementar o Dashboard 2 (commit 3)
+
+- **Objetivo:** levar os KPIs para o `app.py` com `st.metric` e visuais em Altair.
+- **Restrições:**
+  - Widgets definidos antes do código (hotel, ano de chegada e segmento de mercado).
+  - Seleção cruzada conforme o exemplo 3 do `ALTAIR-CROSSFILTER.md` (`on_select`).
+  - Testar filtros que esvaziam os dados e o Dashboard 1 de novo antes do commit.
+- **Resultado:** revisei o app rodando localmente e o print com a seleção antes de aprovar.
+
+### Decisões tomadas por mim
+
+- Aprovar o tema (impacto dos cancelamentos), o público-alvo (gerência de reservas e de receita) e os 4 KPIs: taxa de cancelamento, receita perdida estimada, antecedência mediana e tarifa média das não canceladas.
+- Aprovar os widgets (hotel, ano de chegada e segmento) e os dois visuais (barras por faixa de antecedência e linha por mês).
+- Escolher a paleta B entre as duas opções de identidade visual.
+- Dividir a entrega em 4 commits e revisar cada um antes de aprovar.
+
+### Sugestões da IA que aceitei após revisar
+
+- Deixar os filtros do Dashboard 2 numa barra no topo da aba, já que a sidebar é do Dashboard 1.
+- Mostrar a diferença em pontos percentuais da taxa de cancelamento quando uma faixa é clicada, e "—" nos KPIs quando um grupo fica vazio.
+- Trocar o título geral do app para "Painel de Reservas de Hotel", que vale para as duas abas.
+- Usar a mediana na antecedência, por causa da assimetria de `lead_time` vista na EDA.
+
+### Modificado
+
+- O rascunho do Dashboard 2 também é um wireframe digital, no mesmo estilo do Dashboard 1.
