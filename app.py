@@ -40,44 +40,57 @@ VARS_PADRAO = [
     "total_of_special_requests",
 ]
 
-# Sidebar: filtros (variáveis + intervalo)
-with st.sidebar:
-    st.header("Filtros do Dashboard 1")
+# Abas com execução sob demanda (on_change="rerun"): só a aba aberta roda, e .open diz qual é.
+# Assim a sidebar com os filtros do Dashboard 1 só aparece quando a aba dele está aberta.
+aba_dashboard1, aba_dashboard2 = st.tabs(["Dashboard 1: Correlação e Distribuição", "Dashboard 2: KPIs"], key="aba", on_change="rerun")
 
-    variaveis = st.multiselect(
-        "Variáveis Quantitativas",
-        options=VARS_QUANT,
-        default=VARS_PADRAO,
-        help="Selecione as variáveis quantitativas que deseja analisar no dashboard.",
-    )
+# Widgets que não são desenhados numa execução perdem o valor; regravar as chaves mantém os filtros
+# de cada dashboard quando o usuário vai para a outra aba e volta
+for chave in list(st.session_state):
+    if chave in ("variaveis", "separar_por_status", "hoteis", "segmentos") or str(chave).startswith("intervalo_"):
+        st.session_state[chave] = st.session_state[chave]
 
-    separar_por_status = st.toggle(
-        "Distinguir por Status",
-        value=False,
-        help="Colore a distribuição pelo status da reserva (status_reserva: Não cancelada ou Cancelada).",
-    )
+if aba_dashboard1.open:
+    # Sidebar: filtros (variáveis + intervalo)
+    with st.sidebar:
+        st.header("Filtros do Dashboard 1")
 
-    # Um slider de intervalo para cada variável selecionada
-    intervalos = {}
-    for var in variaveis:
-        # children é float no CSV (por causa dos ausentes tratados na EDA), mas só tem valores inteiros
-        if (df[var] % 1 == 0).all():
-            minimo, maximo, passo = int(df[var].min()), int(df[var].max()), 1
-        else:
-            minimo, maximo, passo = float(df[var].min()), float(df[var].max()), 0.1
-        intervalos[var] = st.slider(
-            f"Intervalo de {var}",
-            min_value=minimo,
-            max_value=maximo,
-            value=(minimo, maximo),
-            step=passo,
-            key=f"intervalo_{var}",
+        st.session_state.setdefault("variaveis", VARS_PADRAO)
+        variaveis = st.multiselect(
+            "Variáveis Quantitativas",
+            options=VARS_QUANT,
+            key="variaveis",
+            help="Selecione as variáveis quantitativas que deseja analisar no dashboard.",
         )
 
-# Mantém só as reservas dentro de todos os intervalos escolhidos
-df_filtrado = df
-for var, (inicio, fim) in intervalos.items():
-    df_filtrado = df_filtrado[df_filtrado[var].between(inicio, fim)]
+        separar_por_status = st.toggle(
+            "Distinguir por Status",
+            key="separar_por_status",
+            help="Colore a distribuição pelo status da reserva (status_reserva: Não cancelada ou Cancelada).",
+        )
+
+        # Um slider de intervalo para cada variável selecionada
+        intervalos = {}
+        for var in variaveis:
+            # children é float no CSV (por causa dos ausentes tratados na EDA), mas só tem valores inteiros
+            if (df[var] % 1 == 0).all():
+                minimo, maximo, passo = int(df[var].min()), int(df[var].max()), 1
+            else:
+                minimo, maximo, passo = float(df[var].min()), float(df[var].max()), 0.1
+            st.session_state.setdefault(f"intervalo_{var}", (minimo, maximo))
+            intervalos[var] = st.slider(
+                f"Intervalo de {var}",
+                min_value=minimo,
+                max_value=maximo,
+                step=passo,
+                key=f"intervalo_{var}",
+            )
+
+    # Mantém só as reservas dentro de todos os intervalos escolhidos
+    df_filtrado = df
+    for var, (inicio, fim) in intervalos.items():
+        df_filtrado = df_filtrado[df_filtrado[var].between(inicio, fim)]
+
 
 # Cores da EDA: azul para a distribuição geral, verde-azulado e coral para os status
 COR_HISTOGRAMA = "#5271A3"
@@ -148,266 +161,305 @@ def dias(valor):
     return "—" if pd.isna(valor) else f"{valor:.0f}"
 
 
-aba_dashboard1, aba_dashboard2 = st.tabs(["Dashboard 1: Correlação e Distribuição", "Dashboard 2: KPIs"])
+if aba_dashboard1.open:
+    with aba_dashboard1:
+        st.caption(f"{len(df_filtrado):,} de {len(df):,} reservas dentro dos intervalos escolhidos.".replace(",", "."))
 
-with aba_dashboard1:
-    st.caption(f"{len(df_filtrado):,} de {len(df):,} reservas dentro dos intervalos escolhidos.".replace(",", "."))
+        # Dashboard 1: correlação (heatmap) à esquerda, distribuição (histograma) à direita
+        col_correlacao, col_distribuicao = st.columns([1, 1.5])
 
-    # Dashboard 1: correlação (heatmap) à esquerda, distribuição (histograma) à direita
-    col_correlacao, col_distribuicao = st.columns([1, 1.5])
+        with col_correlacao:
+            st.subheader("Correlação (Spearman)")
 
-    with col_correlacao:
-        st.subheader("Correlação (Spearman)")
+            if len(variaveis) < 2:
+                st.warning("Selecione pelo menos 2 variáveis para calcular a correlação.")
+            elif len(df_filtrado) < 30:
+                st.warning("Poucas reservas nos intervalos escolhidos para calcular a correlação.")
+            else:
+                # Matriz de correlação de Spearman das variáveis selecionadas, em formato longo (uma linha por célula)
+                corr = (
+                    df_filtrado[variaveis]
+                    .corr(method="spearman")
+                    .rename_axis(index="var_y", columns="var_x")
+                    .stack(future_stack=True)
+                    .rename("correlacao")
+                    .reset_index()
+                )
+                # Só o triângulo inferior, sem a diagonal (sempre 1): a matriz é simétrica, o resto é repetição
+                ordem = {var: i for i, var in enumerate(variaveis)}
+                corr = corr[corr["var_y"].map(ordem) > corr["var_x"].map(ordem)]
 
-        if len(variaveis) < 2:
-            st.warning("Selecione pelo menos 2 variáveis para calcular a correlação.")
-        elif len(df_filtrado) < 30:
-            st.warning("Poucas reservas nos intervalos escolhidos para calcular a correlação.")
+                base = alt.Chart(corr).encode(
+                    x=alt.X(
+                        "var_x:N",
+                        title=None,
+                        sort=variaveis[:-1],  # a última variável só aparece nas linhas
+                        axis=alt.Axis(labelAngle=-30, labelFontSize=12, labelLimit=220),
+                    ),
+                    y=alt.Y("var_y:N", title=None, sort=variaveis[1:], axis=alt.Axis(labelFontSize=12, labelLimit=220)),  # a primeira só nas colunas
+                )
+                heatmap = base.mark_rect().encode(
+                    color=alt.Color(
+                        "correlacao:Q",
+                        title="Spearman",
+                        scale=alt.Scale(scheme="redblue", domain=[-1, 1], reverse=True),
+                        legend=alt.Legend(titleFontSize=14, labelFontSize=13),
+                    ),
+                    tooltip=["var_x", "var_y", alt.Tooltip("correlacao:Q", format=".2f")],
+                )
+                valores = base.mark_text(fontSize=14).encode(
+                    text=alt.Text("correlacao:Q", format=".2f"),
+                    color=alt.condition(
+                        "abs(datum.correlacao) > 0.5", alt.value("white"), alt.value("black")
+                    ),
+                )
+
+                st.altair_chart(
+                    (heatmap + valores).properties(height=380),
+                    width="stretch",
+                    alt="Mapa de calor (triângulo inferior, sem a diagonal) da correlação de Spearman entre as variáveis quantitativas selecionadas",
+                )
+
+        with col_distribuicao:
+            st.subheader("Distribuição")
+
+            if not variaveis:
+                st.warning("Selecione pelo menos 1 variável para ver a distribuição.")
+            elif df_filtrado.empty:
+                st.warning("Nenhuma reserva dentro dos intervalos escolhidos.")
+            else:
+                # Com número par de variáveis não sobra espaço na grade: a legenda vai acima dela
+                if separar_por_status and len(variaveis) % 2 == 0:
+                    st.markdown(LEGENDA_STATUS)
+
+                # Um histograma por variável selecionada, em grade de 2 colunas (cada um com a sua escala)
+                for inicio in range(0, len(variaveis), 2):
+                    colunas = st.columns(2)
+                    for coluna, var in zip(colunas, variaveis[inicio : inicio + 2]):
+                        histograma = (
+                            alt.Chart(histograma_agregado(df_filtrado, var, separar_por_status))
+                            .mark_bar()
+                            .encode(
+                                x=alt.X("inicio:Q", bin="binned", title=var),  # faixas já calculadas no pandas
+                                x2="fim:Q",
+                                y=alt.Y("reservas:Q", title="Reservas"),
+                                tooltip=[
+                                    alt.Tooltip("inicio:Q", title="De"),
+                                    alt.Tooltip("fim:Q", title="Até"),
+                                    alt.Tooltip("reservas:Q", title="Reservas"),
+                                ],
+                            )
+                            .properties(height=200)
+                        )
+                        if separar_por_status:
+                            histograma = histograma.encode(
+                                color=alt.Color(
+                                    "status_reserva:N",
+                                    title="Status",
+                                    scale=CORES_STATUS,
+                                    legend=None,
+                                ),
+                                tooltip=[
+                                    "status_reserva",
+                                    alt.Tooltip("inicio:Q", title="De"),
+                                    alt.Tooltip("fim:Q", title="Até"),
+                                    alt.Tooltip("reservas:Q", title="Reservas"),
+                                ],
+                            )
+                        else:
+                            histograma = histograma.mark_bar(color=COR_HISTOGRAMA)
+
+                        with coluna:
+                            st.altair_chart(histograma, width="stretch", alt=f"Histograma da variável {var}")
+
+                    # Número ímpar de variáveis: a legenda ocupa o espaço que sobrou na última linha
+                    if separar_por_status and len(colunas) == 2 and len(variaveis[inicio : inicio + 2]) == 1:
+                        colunas[1].markdown(LEGENDA_STATUS)
+
+
+if aba_dashboard2.open:
+    with aba_dashboard2:
+        # Filtros do Dashboard 2 numa barra no topo da aba (a sidebar é do Dashboard 1)
+        col_hotel, col_ano, col_segmento = st.columns([1, 1, 1.4])
+        with col_hotel:
+            st.session_state.setdefault("hoteis", ["City Hotel", "Resort Hotel"])
+            hoteis = st.pills(
+                "Hotel",
+                options=["City Hotel", "Resort Hotel"],
+                selection_mode="multi",
+                key="hoteis",
+            )
+        with col_ano:
+            # int do Python (não numpy): o Streamlit compara o valor salvo com o novo
+            anos = sorted(df["arrival_date_year"].unique().tolist())
+            # O value em tupla é o que faz o select_slider ser de intervalo; a última escolha fica salva
+            # em "anos_salvo" para voltar igual depois de visitar o Dashboard 1
+            ano_inicio, ano_fim = st.select_slider(
+                "Ano de chegada",
+                options=anos,
+                value=st.session_state.get("anos_salvo", (anos[0], anos[-1])),
+                key="anos",
+            )
+            st.session_state["anos_salvo"] = (ano_inicio, ano_fim)
+        with col_segmento:
+            segmentos_ordem = df["market_segment"].value_counts().index.tolist()
+            st.session_state.setdefault("segmentos", segmentos_ordem)
+            segmentos = st.multiselect(
+                "Segmento de mercado",
+                options=segmentos_ordem,
+                key="segmentos",
+                help="Canal pelo qual a reserva foi feita (ex.: Online TA = agência de viagens online).",
+            )
+
+        df_kpi = df[
+            df["hotel"].isin(hoteis)
+            & df["arrival_date_year"].between(ano_inicio, ano_fim)
+            & df["market_segment"].isin(segmentos)
+        ].assign(
+            faixa_antecedencia=lambda d: pd.cut(d["lead_time"], FAIXAS_ANTECEDENCIA, labels=ROTULOS_ANTECEDENCIA),
+            cancelada=lambda d: d["status_reserva"].eq("Cancelada"),
+        )
+
+        if df_kpi.empty:
+            st.warning("Nenhuma reserva com esses filtros. Selecione pelo menos um hotel e um segmento.")
         else:
-            # Matriz de correlação de Spearman das variáveis selecionadas, em formato longo (uma linha por célula)
-            corr = (
-                df_filtrado[variaveis]
-                .corr(method="spearman")
-                .rename_axis(index="var_y", columns="var_x")
-                .stack(future_stack=True)
-                .rename("correlacao")
+            kpis_container = st.container()
+
+            # Barras: taxa de cancelamento por faixa de antecedência (sempre do recorte inteiro, para comparar as faixas)
+            por_faixa = (
+                df_kpi.groupby("faixa_antecedencia", observed=True)["cancelada"]
+                .agg(reservas="size", taxa="mean")
                 .reset_index()
             )
-            # Só o triângulo inferior, sem a diagonal (sempre 1): a matriz é simétrica, o resto é repetição
-            ordem = {var: i for i, var in enumerate(variaveis)}
-            corr = corr[corr["var_y"].map(ordem) > corr["var_x"].map(ordem)]
+            taxa_recorte = df_kpi["cancelada"].mean()
 
-            base = alt.Chart(corr).encode(
-                x=alt.X(
-                    "var_x:N",
-                    title=None,
-                    sort=variaveis[:-1],  # a última variável só aparece nas linhas
-                    axis=alt.Axis(labelAngle=-30, labelFontSize=12, labelLimit=220),
-                ),
-                y=alt.Y("var_y:N", title=None, sort=variaveis[1:], axis=alt.Axis(labelFontSize=12, labelLimit=220)),  # a primeira só nas colunas
-            )
-            heatmap = base.mark_rect().encode(
-                color=alt.Color(
-                    "correlacao:Q",
-                    title="Spearman",
-                    scale=alt.Scale(scheme="redblue", domain=[-1, 1], reverse=True),
-                    legend=alt.Legend(titleFontSize=14, labelFontSize=13),
-                ),
-                tooltip=["var_x", "var_y", alt.Tooltip("correlacao:Q", format=".2f")],
-            )
-            valores = base.mark_text(fontSize=14).encode(
-                text=alt.Text("correlacao:Q", format=".2f"),
-                color=alt.condition(
-                    "abs(datum.correlacao) > 0.5", alt.value("white"), alt.value("black")
-                ),
-            )
-
-            st.altair_chart(
-                (heatmap + valores).properties(height=380),
-                width="stretch",
-                alt="Mapa de calor (triângulo inferior, sem a diagonal) da correlação de Spearman entre as variáveis quantitativas selecionadas",
-            )
-
-    with col_distribuicao:
-        st.subheader("Distribuição")
-
-        if not variaveis:
-            st.warning("Selecione pelo menos 1 variável para ver a distribuição.")
-        elif df_filtrado.empty:
-            st.warning("Nenhuma reserva dentro dos intervalos escolhidos.")
-        else:
-            # Com número par de variáveis não sobra espaço na grade: a legenda vai acima dela
-            if separar_por_status and len(variaveis) % 2 == 0:
-                st.markdown(LEGENDA_STATUS)
-
-            # Um histograma por variável selecionada, em grade de 2 colunas (cada um com a sua escala)
-            for inicio in range(0, len(variaveis), 2):
-                colunas = st.columns(2)
-                for coluna, var in zip(colunas, variaveis[inicio : inicio + 2]):
-                    histograma = (
-                        alt.Chart(histograma_agregado(df_filtrado, var, separar_por_status))
-                        .mark_bar()
-                        .encode(
-                            x=alt.X("inicio:Q", bin="binned", title=var),  # faixas já calculadas no pandas
-                            x2="fim:Q",
-                            y=alt.Y("reservas:Q", title="Reservas"),
-                            tooltip=[
-                                alt.Tooltip("inicio:Q", title="De"),
-                                alt.Tooltip("fim:Q", title="Até"),
-                                alt.Tooltip("reservas:Q", title="Reservas"),
-                            ],
-                        )
-                        .properties(height=200)
-                    )
-                    if separar_por_status:
-                        histograma = histograma.encode(
-                            color=alt.Color(
-                                "status_reserva:N",
-                                title="Status",
-                                scale=CORES_STATUS,
-                                legend=None,
-                            ),
-                            tooltip=[
-                                "status_reserva",
-                                alt.Tooltip("inicio:Q", title="De"),
-                                alt.Tooltip("fim:Q", title="Até"),
-                                alt.Tooltip("reservas:Q", title="Reservas"),
-                            ],
-                        )
-                    else:
-                        histograma = histograma.mark_bar(color=COR_HISTOGRAMA)
-
-                    with coluna:
-                        st.altair_chart(histograma, width="stretch", alt=f"Histograma da variável {var}")
-
-                # Número ímpar de variáveis: a legenda ocupa o espaço que sobrou na última linha
-                if separar_por_status and len(colunas) == 2 and len(variaveis[inicio : inicio + 2]) == 1:
-                    colunas[1].markdown(LEGENDA_STATUS)
-
-with aba_dashboard2:
-    # Filtros do Dashboard 2 numa barra no topo da aba (a sidebar é do Dashboard 1)
-    col_hotel, col_ano, col_segmento = st.columns([1, 1, 1.4])
-    with col_hotel:
-        hoteis = st.pills(
-            "Hotel",
-            options=["City Hotel", "Resort Hotel"],
-            selection_mode="multi",
-            default=["City Hotel", "Resort Hotel"],
-        )
-    with col_ano:
-        anos = sorted(df["arrival_date_year"].unique())
-        ano_inicio, ano_fim = st.select_slider(
-            "Ano de chegada", options=anos, value=(anos[0], anos[-1])
-        )
-    with col_segmento:
-        segmentos_ordem = df["market_segment"].value_counts().index.tolist()
-        segmentos = st.multiselect(
-            "Segmento de mercado",
-            options=segmentos_ordem,
-            default=segmentos_ordem,
-            help="Canal pelo qual a reserva foi feita (ex.: Online TA = agência de viagens online).",
-        )
-
-    df_kpi = df[
-        df["hotel"].isin(hoteis)
-        & df["arrival_date_year"].between(ano_inicio, ano_fim)
-        & df["market_segment"].isin(segmentos)
-    ].assign(
-        faixa_antecedencia=lambda d: pd.cut(d["lead_time"], FAIXAS_ANTECEDENCIA, labels=ROTULOS_ANTECEDENCIA),
-        cancelada=lambda d: d["status_reserva"].eq("Cancelada"),
-    )
-
-    if df_kpi.empty:
-        st.warning("Nenhuma reserva com esses filtros. Selecione pelo menos um hotel e um segmento.")
-    else:
-        kpis_container = st.container()
-
-        # Barras: taxa de cancelamento por faixa de antecedência (sempre do recorte inteiro, para comparar as faixas)
-        por_faixa = (
-            df_kpi.groupby("faixa_antecedencia", observed=True)["cancelada"]
-            .agg(reservas="size", taxa="mean")
-            .reset_index()
-        )
-        taxa_recorte = df_kpi["cancelada"].mean()
-
-        clique = alt.selection_point(name="faixa", fields=["faixa_antecedencia"])
-        barras = (
-            alt.Chart(por_faixa)
-            .mark_bar(color=COR_CANCELADA)
-            .encode(
-                x=alt.X("faixa_antecedencia:N", sort=ROTULOS_ANTECEDENCIA, title="Antecedência da reserva",
-                        axis=alt.Axis(labelAngle=0)),
-                y=alt.Y("taxa:Q", title="Taxa de cancelamento", axis=alt.Axis(format=".0%")),
-                opacity=alt.condition(clique, alt.value(1), alt.value(0.35)),
-                tooltip=[
-                    alt.Tooltip("faixa_antecedencia:N", title="Faixa"),
-                    alt.Tooltip("taxa:Q", title="Taxa", format=".1%"),
-                    alt.Tooltip("reservas:Q", title="Reservas", format=","),
-                ],
-            )
-            .add_params(clique)
-        )
-        linha_geral = (
-            alt.Chart(pd.DataFrame({"taxa": [taxa_recorte]}))
-            .mark_rule(color="gray", strokeDash=[4, 4])
-            .encode(y="taxa:Q")
-        )
-
-        # A seleção da faixa volta para o Python e recalcula os KPIs e a linha por mês
-        col_barras, col_linha = st.columns(2)
-        with col_barras:
-            st.subheader("Cancelamento por antecedência")
-            evento = st.altair_chart(
-                (barras + linha_geral).properties(height=300),
-                key="barras_antecedencia",
-                on_select="rerun",
-                width="stretch",
-            )
-            st.caption("Clique numa faixa para recalcular os KPIs e a linha por mês (shift + clique seleciona mais de uma). "
-                       "A linha tracejada é a taxa do recorte.")
-
-        faixas_clicadas = [item["faixa_antecedencia"] for item in evento.selection.get("faixa", [])]
-        df_selecao = df_kpi[df_kpi["faixa_antecedencia"].isin(faixas_clicadas)] if faixas_clicadas else df_kpi
-
-        # Linha: taxa de cancelamento por mês de chegada
-        por_mes = (
-            df_selecao.groupby("arrival_date_month")["cancelada"]
-            .agg(reservas="size", taxa="mean")
-            .reindex(list(MESES))
-            .dropna()
-            .rename(index=MESES)
-            .rename_axis("mes")
-            .reset_index()
-        )
-        with col_linha:
-            st.subheader("Cancelamento por mês")
-            linha = (
-                alt.Chart(por_mes)
-                .mark_line(point=alt.OverlayMarkDef(color=COR_CANCELADA), color=COR_CANCELADA)
+            clique = alt.selection_point(name="faixa", fields=["faixa_antecedencia"])
+            barras = (
+                alt.Chart(por_faixa)
+                .mark_bar(color=COR_CANCELADA)
                 .encode(
-                    x=alt.X("mes:N", sort=list(MESES.values()), title="Mês de chegada", axis=alt.Axis(labelAngle=0)),
+                    x=alt.X("faixa_antecedencia:N", sort=ROTULOS_ANTECEDENCIA, title="Antecedência da reserva",
+                            axis=alt.Axis(labelAngle=0)),
                     y=alt.Y("taxa:Q", title="Taxa de cancelamento", axis=alt.Axis(format=".0%")),
+                    opacity=alt.condition(clique, alt.value(1), alt.value(0.35)),
                     tooltip=[
-                        alt.Tooltip("mes:N", title="Mês"),
+                        alt.Tooltip("faixa_antecedencia:N", title="Faixa"),
                         alt.Tooltip("taxa:Q", title="Taxa", format=".1%"),
                         alt.Tooltip("reservas:Q", title="Reservas", format=","),
                     ],
                 )
-                .properties(height=300)
+                .add_params(clique)
             )
-            st.altair_chart(linha, width="stretch")
+            linha_geral = (
+                alt.Chart(pd.DataFrame({"taxa": [taxa_recorte]}))
+                .mark_rule(color="gray", strokeDash=[4, 4])
+                .encode(y="taxa:Q")
+            )
 
-        # KPIs acima dos gráficos (container reservado antes, preenchido depois da seleção)
-        with kpis_container:
-            selecao = kpis(df_selecao)
-            recorte = kpis(df_kpi)
-            descricao = ", ".join(faixas_clicadas) if faixas_clicadas else "todas as faixas de antecedência"
-            st.caption(f"{numero_br(len(df_selecao), 0)} reservas no recorte ({descricao}).")
+            # A seleção da faixa volta para o Python e recalcula os KPIs e a linha por mês
+            col_barras, col_linha = st.columns(2)
+            with col_barras:
+                st.subheader("Cancelamento por antecedência")
+                evento = st.altair_chart(
+                    (barras + linha_geral).properties(height=300),
+                    key="barras_antecedencia",
+                    on_select="rerun",
+                    width="stretch",
+                )
+                st.caption("Clique numa faixa para recalcular os KPIs e a linha por mês (shift + clique seleciona mais de uma). "
+                           "A linha tracejada é a taxa do recorte.")
 
-            col1, col2, col3, col4 = st.columns(4)
-            col1.metric(
-                "Taxa de cancelamento",
-                f"{numero_br(selecao['taxa'] * 100)}%",
-                # Com faixa clicada, compara com o recorte inteiro (subir é ruim, por isso a cor invertida)
-                delta=f"{numero_br((selecao['taxa'] - recorte['taxa']) * 100)} p.p." if faixas_clicadas else None,
-                delta_color="inverse",
-                border=True,
+            faixas_clicadas = [item["faixa_antecedencia"] for item in evento.selection.get("faixa", [])]
+            df_selecao = df_kpi[df_kpi["faixa_antecedencia"].isin(faixas_clicadas)] if faixas_clicadas else df_kpi
+
+            # Linha: taxa de cancelamento por mês de chegada
+            por_mes = (
+                df_selecao.groupby("arrival_date_month")["cancelada"]
+                .agg(reservas="size", taxa="mean")
+                .reindex(list(MESES))
+                .dropna()
+                .rename(index=MESES)
+                .rename_axis("mes")
+                .reset_index()
             )
-            col2.metric(
-                "Receita perdida estimada",
-                valor_curto(selecao["receita_perdida"]),
-                help="Tarifa média diária (adr) × noites das reservas canceladas. O dataset não informa a moeda.",
-                border=True,
+            with col_linha:
+                st.subheader("Cancelamento por mês")
+                linha = (
+                    alt.Chart(por_mes)
+                    .mark_line(point=alt.OverlayMarkDef(color=COR_CANCELADA), color=COR_CANCELADA)
+                    .encode(
+                        x=alt.X("mes:N", sort=list(MESES.values()), title="Mês de chegada", axis=alt.Axis(labelAngle=0)),
+                        y=alt.Y("taxa:Q", title="Taxa de cancelamento", axis=alt.Axis(format=".0%")),
+                        tooltip=[
+                            alt.Tooltip("mes:N", title="Mês"),
+                            alt.Tooltip("taxa:Q", title="Taxa", format=".1%"),
+                            alt.Tooltip("reservas:Q", title="Reservas", format=","),
+                        ],
+                    )
+                    .properties(height=300)
+                )
+                st.altair_chart(linha, width="stretch")
+
+            # Barras horizontais: taxa de cancelamento por segmento de mercado (também respeita o clique na faixa)
+            por_segmento = (
+                df_selecao.groupby("market_segment")["cancelada"]
+                .agg(reservas="size", taxa="mean")
+                .reset_index()
+                # Segmentos com menos de 30 reservas no recorte dariam taxas instáveis (ex.: Undefined tem 2)
+                .query("reservas >= 30")
             )
-            col3.metric(
-                "Antecedência mediana (dias)",
-                f"{dias(selecao['lead_canceladas'])} × {dias(selecao['lead_nao_canceladas'])}",
-                help="Canceladas × não canceladas.",
-                border=True,
+            st.subheader("Cancelamento por segmento de mercado")
+            segmentos_chart = (
+                alt.Chart(por_segmento)
+                .mark_bar(color=COR_CANCELADA)
+                .encode(
+                    x=alt.X("taxa:Q", title="Taxa de cancelamento", axis=alt.Axis(format=".0%")),
+                    y=alt.Y("market_segment:N", sort="-x", title=None),
+                    tooltip=[
+                        alt.Tooltip("market_segment:N", title="Segmento"),
+                        alt.Tooltip("taxa:Q", title="Taxa", format=".1%"),
+                        alt.Tooltip("reservas:Q", title="Reservas", format=","),
+                    ],
+                )
+                .properties(height=40 * len(por_segmento) + 40)
             )
-            col4.metric(
-                "Tarifa média (não canceladas)",
-                "—" if pd.isna(selecao["adr_nao_canceladas"]) else numero_br(selecao["adr_nao_canceladas"]),
-                help="Média de adr das reservas que se concretizaram.",
-                border=True,
-            )
+            if por_segmento.empty:
+                st.info("Nenhum segmento com pelo menos 30 reservas no recorte.")
+            else:
+                st.altair_chart(segmentos_chart, width="stretch")
+                st.caption("Só entram segmentos com pelo menos 30 reservas no recorte; o nº de reservas está no tooltip.")
+
+            # KPIs acima dos gráficos (container reservado antes, preenchido depois da seleção)
+            with kpis_container:
+                selecao = kpis(df_selecao)
+                recorte = kpis(df_kpi)
+                descricao = ", ".join(faixas_clicadas) if faixas_clicadas else "todas as faixas de antecedência"
+                st.caption(f"{numero_br(len(df_selecao), 0)} reservas no recorte ({descricao}).")
+
+                col1, col2, col3, col4 = st.columns(4)
+                col1.metric(
+                    "Taxa de cancelamento",
+                    f"{numero_br(selecao['taxa'] * 100)}%",
+                    # Com faixa clicada, compara com o recorte inteiro (subir é ruim, por isso a cor invertida)
+                    delta=f"{numero_br((selecao['taxa'] - recorte['taxa']) * 100)} p.p." if faixas_clicadas else None,
+                    delta_color="inverse",
+                    border=True,
+                )
+                col2.metric(
+                    "Receita perdida estimada",
+                    valor_curto(selecao["receita_perdida"]),
+                    help="Tarifa média diária (adr) × noites das reservas canceladas. O dataset não informa a moeda.",
+                    border=True,
+                )
+                col3.metric(
+                    "Antecedência mediana (dias)",
+                    f"{dias(selecao['lead_canceladas'])} × {dias(selecao['lead_nao_canceladas'])}",
+                    help="Canceladas × não canceladas.",
+                    border=True,
+                )
+                col4.metric(
+                    "Tarifa média (não canceladas)",
+                    "—" if pd.isna(selecao["adr_nao_canceladas"]) else numero_br(selecao["adr_nao_canceladas"]),
+                    help="Média de adr das reservas que se concretizaram.",
+                    border=True,
+                )
