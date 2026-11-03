@@ -3,6 +3,7 @@ import streamlit as st
 
 
 # Cache: o CSV é lido uma vez só, e não a cada interação com os widgets
+# [IA] Claude Code – cache do carregamento do CSV (Aula 21)
 @st.cache_data
 def load_data(path="data/clean/dataset.csv"):
     """Lê o dataset já tratado (exportado ao final do notebook de EDA)."""

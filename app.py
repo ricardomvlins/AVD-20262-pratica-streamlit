@@ -14,6 +14,7 @@ st.title("Painel de Reservas de Hotel")
 
 df = load_data()
 
+# [IA] Claude Code – adaptação do app modelo da professora ao dataset de reservas de hotel (Aula 21)
 # Variáveis quantitativas do estudo (mesma lista VARS_QUANT do notebook de EDA)
 VARS_QUANT = [
     "lead_time",
@@ -40,6 +41,7 @@ VARS_PADRAO = [
     "total_of_special_requests",
 ]
 
+# [IA] Claude Code – abas sob demanda e sidebar só no Dashboard 1 (Aulas 22 e 23)
 # Abas com execução sob demanda (on_change="rerun"): só a aba aberta roda, e .open diz qual é.
 # Assim a sidebar com os filtros do Dashboard 1 só aparece quando a aba dele está aberta.
 aba_dashboard1, aba_dashboard2 = st.tabs(["Dashboard 1: Correlação e Distribuição", "Dashboard 2: KPIs"], key="aba", on_change="rerun")
@@ -108,6 +110,7 @@ LEGENDA_STATUS = (
 )
 
 
+# [IA] Claude Code – sintaxe dos histogramas pré-agregados no pandas para o Altair (Aula 21)
 def histograma_agregado(dados, var, separar):
     """Conta as reservas por faixa no pandas: o Altair recebe ~20 linhas em vez de dezenas de milhares."""
     # Até 20 faixas de mesma largura (menos quando a variável tem poucos valores distintos)
@@ -120,6 +123,7 @@ def histograma_agregado(dados, var, separar):
     return contagem.drop(columns=var)
 
 
+# [IA] Claude Code – cálculo e formatação dos KPIs do Dashboard 2 (Aula 22)
 # Dashboard 2: faixas de antecedência (lead_time agrupado) e meses de chegada, na ordem do calendário
 FAIXAS_ANTECEDENCIA = [-1, 7, 30, 90, 180, np.inf]
 ROTULOS_ANTECEDENCIA = ["0–7 dias", "8–30 dias", "31–90 dias", "91–180 dias", "> 180 dias"]
@@ -277,6 +281,7 @@ if aba_dashboard1.open:
                         colunas[1].markdown(LEGENDA_STATUS)
 
 
+# [IA] Claude Code – widgets, st.metric e gráficos Altair com seleção cruzada do Dashboard 2 (Aulas 22 e 23)
 if aba_dashboard2.open:
     with aba_dashboard2:
         # Filtros do Dashboard 2 numa barra no topo da aba (a sidebar é do Dashboard 1)
